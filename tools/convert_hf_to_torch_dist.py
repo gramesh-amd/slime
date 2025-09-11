@@ -80,7 +80,12 @@ def main():
     dist.init_process_group(backend="nccl")
     torch.cuda.set_device(dist.get_rank() % torch.cuda.device_count())
     args = get_args()
+    args.use_cpu_initialization  = True
     init(args)
+    # if using AMD gpus, we have to do the conversion in cpu
+    if hasattr(torch.version, 'hip') and torch.version.hip is not None:
+        assert args.use_cpu_initialization, "AMD GPU requires --use_cpu_initialization=True"
+        
     model = get_model(get_model_provider_func(args), ModelType.encoder_or_decoder, wrap_with_ddp=False)
 
     # Load model

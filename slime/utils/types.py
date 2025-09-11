@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Optional, Union
+from typing import Optional, Union, Any, Dict
 
 import torch
 
@@ -20,6 +20,12 @@ class Sample:
     reward: Optional[Union[float, dict[str, Any]]] = None
     loss_mask: Optional[list[int]] = None
     rollout_log_probs: Optional[list[float]] = None  # Log probabilities from rollout engine
+    #Reward
+    call_status: bool = False
+    exec_status: bool = False
+    stdout: str = ""
+    stderr: str = ""
+    perf_data: Optional[Dict] = None
 
     class Status(Enum):
         PENDING = "pending"
@@ -31,7 +37,6 @@ class Sample:
     metadata: dict = field(default_factory=dict)
     # metadata used during training, e.g., what loss to use for this sample.
     train_metadata: Optional[dict] = None
-
     def to_dict(self):
         value = self.__dict__.copy()
         value["status"] = self.status.value
@@ -54,3 +59,5 @@ class ParamInfo:
     attrs: dict
     size: int
     src_rank: int
+
+

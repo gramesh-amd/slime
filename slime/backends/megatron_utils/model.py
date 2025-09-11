@@ -478,28 +478,333 @@ def train(rollout_id, model, optimizer, opt_param_scheduler, data_iterator, num_
     if pre_hook_enabled:
         disable_forward_pre_hook(model)
 
+def clear_gradients(model):
+    """Completely clear all gradients from model."""
+    for model_chunk in model:
+        # Clear DDP gradient buffers
+        if hasattr(model_chunk, 'zero_grad_buffer'):
+            try:
+                model_chunk.zero_grad_buffer()
+            except Exception as e:
+                print(f"[WARNING] Failed to zero grad buffer: {e}")
+        
+        # Clear parameter gradients
+        for param in model_chunk.parameters():
+            param.grad = None
+            # Don't set main_grad to None if it exists - Megatron needs it
+            if hasattr(param, 'main_grad') and param.main_grad is not None:
+                param.main_grad.zero_()
+
+
+def move_megatron_optimizer_to_cpu_complete(optimizer):
+    """Move optimizer state keys (parameters) and values (tensors) to CPU"""
+    print(f"[DEBUG] Moving optimizer to CPU...")
+    
+    # Create mapping from old params to new CPU params
+    old_to_new_param_map = {}
+    
+    # Move param_groups parameters to CPU first and build mapping
+    for group_idx, group in enumerate(optimizer.param_groups):
+        print(f"[DEBUG] Processing param group {group_idx}")
+        for i, param in enumerate(group['params']):
+            cpu_param = param.cpu()
+            old_to_new_param_map[param] = cpu_param
+            group['params'][i] = cpu_param
+            # Also move main_grad if it exists
+            if hasattr(param, 'main_grad') and param.main_grad is not None:
+                cpu_param.main_grad = param.main_grad.cpu()
+            print(f"[DEBUG] Moved param {i} from {param.device} to {cpu_param.device}")
+    
+    # Rebuild state dict with CPU parameters as keys
+    new_state = {}
+    for param, state in optimizer.state.items():
+        if param in old_to_new_param_map:
+            cpu_param = old_to_new_param_map[param]
+            new_state[cpu_param] = {}
+            for k, v in state.items():
+                if torch.is_tensor(v):
+                    new_state[cpu_param][k] = v.cpu()
+                    print(f"[DEBUG] Moved optimizer state '{k}' from {v.device} to cpu")
+                else:
+                    new_state[cpu_param][k] = v
+    
+    optimizer.state = new_state
+    
+    # Update optimizer's internal parameter mappings
+    if hasattr(optimizer, '_param_groups'):
+        optimizer._param_groups = optimizer.param_groups
+    
+    # Clear any cached parameter mappings
+    if hasattr(optimizer, '_param_groups_backup'):
+        delattr(optimizer, '_param_groups_backup')
+    
+    print(f"[DEBUG] Optimizer move to CPU complete")
+    return optimizer
+
+def move_model_to_gpu(model, device='cuda'):
+    """Move model back to GPU and properly initialize gradients"""
+    # Convert string device to device object if needed
+    if isinstance(device, str):
+        device = torch.device(device)
+    
+    print(f"[DEBUG] Moving model to {device}...")
+    
+    if isinstance(model, list):
+        for i, model_chunk in enumerate(model):
+            # Clear any existing gradients before moving
+            for param in model_chunk.parameters():
+                param.grad = None
+                # Preserve main_grad if it exists
+                if hasattr(param, 'main_grad') and param.main_grad is not None:
+                    main_grad_cpu = param.main_grad
+                    param.main_grad = None  # Temporarily set to None for the move
+            
+            model[i] = model_chunk.to(device)
+            
+            # Restore main_grad on GPU
+            for param in model[i].parameters():
+                if hasattr(param, 'main_grad'):
+                    # Initialize main_grad as zeros on GPU if it was None or exists
+                    param.main_grad = torch.zeros_like(param.data)
+            
+            print(f"[DEBUG] Moved model chunk {i} to {device}")
+    else:
+        # Clear any existing gradients before moving
+        for param in model.parameters():
+            param.grad = None
+            if hasattr(param, 'main_grad') and param.main_grad is not None:
+                param.main_grad = None
+        
+        model = model.to(device)
+        
+        # Initialize main_grad on GPU
+        for param in model.parameters():
+            if hasattr(param, 'main_grad'):
+                param.main_grad = torch.zeros_like(param.data)
+        
+        print(f"[DEBUG] Moved model to {device}")
+    
+    return model
+
+
+
+
+def move_megatron_optimizer_to_gpu(optimizer, model, device='cuda'):
+    """Move optimizer parameters and state back to GPU, ensuring they match model device placement"""
+    # Convert string device to device object if needed
+    if isinstance(device, str):
+        device = torch.device(device)
+        
+    print(f"[DEBUG] Moving optimizer to {device}...")
+    
+    # Get model parameters to ensure device alignment
+    model_params = []
+    if isinstance(model, list):
+        for model_chunk in model:
+            model_params.extend(list(model_chunk.parameters()))
+    else:
+        model_params = list(model.parameters())
+    
+    print(f"[DEBUG] Found {len(model_params)} model parameters")
+    
+    # Create mapping from CPU params to GPU model params by matching shapes
+    cpu_to_gpu_param_map = {}
+    used_gpu_params = set()
+    
+    # First pass: map optimizer params to model params
+    for group_idx, group in enumerate(optimizer.param_groups):
+        print(f"[DEBUG] Processing optimizer param group {group_idx}")
+        new_params = []
+        
+        for i, cpu_param in enumerate(group['params']):
+            # Find matching model param by shape
+            gpu_param = None
+            for model_param in model_params:
+                if (model_param not in used_gpu_params and 
+                    model_param.shape == cpu_param.shape and
+                    model_param.dtype == cpu_param.dtype):
+                    gpu_param = model_param
+                    used_gpu_params.add(model_param)
+                    break
+            
+            if gpu_param is not None:
+                cpu_to_gpu_param_map[cpu_param] = gpu_param
+                new_params.append(gpu_param)
+                print(f"[DEBUG] Mapped optimizer param {i} to model param on {gpu_param.device}")
+            else:
+                # Fallback: manually move to GPU
+                gpu_param = cpu_param.to(device)
+                cpu_to_gpu_param_map[cpu_param] = gpu_param
+                new_params.append(gpu_param)
+                print(f"[DEBUG] Fallback: moved param {i} to {device}")
+        
+        group['params'] = new_params
+    
+    # Rebuild state dict with GPU parameters as keys
+    new_state = {}
+    for cpu_param, state in optimizer.state.items():
+        if cpu_param in cpu_to_gpu_param_map:
+            gpu_param = cpu_to_gpu_param_map[cpu_param]
+            new_state[gpu_param] = {}
+            for k, v in state.items():
+                if torch.is_tensor(v):
+                    new_state[gpu_param][k] = v.to(device)
+                    print(f"[DEBUG] Moved optimizer state '{k}' to {device}")
+                else:
+                    new_state[gpu_param][k] = v
+    
+    optimizer.state = new_state
+    print(f"[DEBUG] Optimizer move to GPU complete")
+    return optimizer
 
 def save(iteration, model, optimizer, opt_param_scheduler):
+    """Save checkpoint with proper device handling."""
     args = get_args()
+    print(f"[DEBUG] Starting save at iteration {iteration}...")
+    
     if should_disable_forward_pre_hook(args):
+        print("[DEBUG] Disabling forward pre-hook...")
         disable_forward_pre_hook(model)
-    save_checkpoint(
-        iteration,
-        model,
-        optimizer,
-        opt_param_scheduler,
-        num_floating_point_operations_so_far=0,
-        checkpointing_context=None,
-        train_data_iterator=None,
-        preprocess_common_state_dict_fn=None,
-    )
+    
+    # Store original device
+    original_device = next(model[0].parameters()).device
+    print(f"[DEBUG] Original device: {original_device}")
+    
+    # Clear all gradients before moving to CPU
+    print("[DEBUG] Clearing gradients before save...")
+    clear_gradients(model)
+    
+    # Zero out optimizer gradients
+    optimizer.zero_grad()
+    
+    # Move to CPU for saving
+    print("[DEBUG] Moving model and optimizer to CPU for saving...")
+    try:
+        model[0] = model[0].cpu()
+        print("[DEBUG] Model moved to CPU successfully")
+    except Exception as e:
+        print(f"[ERROR] Failed to move model to CPU: {e}")
+        raise
+    
+    try:
+        optimizer = move_megatron_optimizer_to_cpu_complete(optimizer)
+        print("[DEBUG] Optimizer moved to CPU successfully")
+    except Exception as e:
+        print(f"[ERROR] Failed to move optimizer to CPU: {e}")
+        raise
+    
+    # Save checkpoint
+    print("[DEBUG] Saving checkpoint...")
+    try:
+        save_checkpoint(
+            iteration,
+            model,
+            optimizer,
+            opt_param_scheduler,
+            num_floating_point_operations_so_far=0,
+            checkpointing_context=None,
+            train_data_iterator=None,
+            preprocess_common_state_dict_fn=None,
+        )
+        print("[DEBUG] Checkpoint saved successfully")
+    except Exception as e:
+        print(f"[ERROR] Failed to save checkpoint: {e}")
+        raise
+    
+    # Move everything back to original device
+    print("[DEBUG] Moving model and optimizer back to original device...")
+    try:
+        model = move_model_to_gpu(model, original_device)
+        print("[DEBUG] Model moved back to GPU successfully")
+    except Exception as e:
+        print(f"[ERROR] Failed to move model back to GPU: {e}")
+        raise
+    
+    try:
+        optimizer = move_megatron_optimizer_to_gpu(optimizer, model, original_device)
+        print("[DEBUG] Optimizer moved back to GPU successfully")
+    except Exception as e:
+        print(f"[ERROR] Failed to move optimizer back to GPU: {e}")
+        raise
+    
+    # Clear gradients again and ensure clean state
+    print("[DEBUG] Ensuring clean state after restore...")
+    clear_gradients(model)
+    optimizer.zero_grad()
+    
+    # For distributed optimizer, ensure internal buffers are reset
+    if hasattr(optimizer, 'reset_grad_buffers'):
+        print("[DEBUG] Resetting optimizer gradient buffers...")
+        optimizer.reset_grad_buffers()
+    
+    # If using distributed optimizer, we need to ensure model groups are properly set
+    if hasattr(optimizer, 'model_float16_groups') and hasattr(optimizer, 'float16_groups'):
+        print("[DEBUG] Updating distributed optimizer model groups...")
+        # Rebuild model groups with GPU parameters
+        model_float16_groups = []
+        for group in optimizer.float16_groups:
+            model_group = []
+            for param in group:
+                # Find corresponding model parameter
+                for model_chunk in model:
+                    for p in model_chunk.parameters():
+                        if p.shape == param.shape and p.dtype == param.dtype:
+                            model_group.append(p)
+                            break
+            if model_group:
+                model_float16_groups.append(model_group)
+        
+        if model_float16_groups:
+            optimizer.model_float16_groups = model_float16_groups
+            print(f"[DEBUG] Updated {len(model_float16_groups)} model float16 groups")
+    
+    # Final verification
+    print("[DEBUG] Final verification of device placement...")
+    model_device = next(model[0].parameters()).device
+    print(f"[DEBUG] Model on device: {model_device}")
+    
+    # Check optimizer param devices
+    for group_idx, group in enumerate(optimizer.param_groups):
+        if len(group['params']) > 0:
+            param_device = group['params'][0].device
+            print(f"[DEBUG] Optimizer param group {group_idx} on device: {param_device}")
+            break
+    
+    # Verify main_grad initialization
+    main_grad_count = 0
+    for model_chunk in model:
+        for param in model_chunk.parameters():
+            if hasattr(param, 'main_grad') and param.main_grad is not None:
+                main_grad_count += 1
+    print(f"[DEBUG] {main_grad_count} parameters have main_grad initialized")
+    
     if should_disable_forward_pre_hook(args):
+        print("[DEBUG] Re-enabling forward pre-hook...")
         enable_forward_pre_hook(model)
-
+    
+    print(f"[DEBUG] Save complete. Model ready for next training step.")
 
 def initialize_model_and_optimizer(args):
+    """Initialize model and optimizer, handling device placement correctly."""
+    print("[DEBUG] Starting initialize_model_and_optimizer...")
+    
     model, optimizer, opt_param_scheduler = setup_model_and_optimizer(args)
+    
+    # Get the target device before loading
+    if torch.cuda.is_available():
+        device = torch.device(f'cuda:{torch.cuda.current_device()}')
+    else:
+        device = torch.device('cpu')
+    print(f"[DEBUG] Target device: {device}")
+    
+    # Check current device of model
+    current_device = next(model[0].parameters()).device
+    print(f"[DEBUG] Model currently on device: {current_device}")
+    
     clear_memory()
+    
+    # Load checkpoint
+    print("[DEBUG] Loading checkpoint...")
     iteration, _ = load_checkpoint(
         model,
         optimizer,
@@ -507,6 +812,64 @@ def initialize_model_and_optimizer(args):
         checkpointing_context={},
         skip_load_to_model_and_opt=False,
     )
+    print(f"[DEBUG] Loaded checkpoint at iteration {iteration}")
+    
+    # Check device after loading
+    loaded_device = next(model[0].parameters()).device
+    print(f"[DEBUG] Model on device after loading: {loaded_device}")
+    
+    # Ensure model is on the correct device after loading
+    if loaded_device.type != device.type:
+        print(f"[DEBUG] Need to move model from {loaded_device} to {device}")
+        model = move_model_to_gpu(model, device)
+    
+    # Clear all gradients to ensure clean state
+    print("[DEBUG] Clearing all gradients...")
+    clear_gradients(model)
+    
+    # Initialize main_grad for all parameters (required by Megatron DDP)
+    print("[DEBUG] Initializing main_grad for all parameters...")
+    for i, model_chunk in enumerate(model):
+        for name, param in model_chunk.named_parameters():
+            if hasattr(param, 'main_grad') and param.main_grad is None:
+                # Initialize main_grad with zeros of the same shape and dtype
+                param.main_grad = torch.zeros_like(param.data)
+                print(f"[DEBUG] Initialized main_grad for model[{i}].{name}")
+    
+    # Ensure optimizer state is also on the correct device
+    if optimizer is not None:
+        print("[DEBUG] Checking optimizer state devices...")
+        needs_device_update = False
+        
+        # Check if any optimizer state is on wrong device
+        for param, state in optimizer.state.items():
+            param_device = param.device
+            for k, v in state.items():
+                if torch.is_tensor(v) and v.device != param_device:
+                    print(f"[DEBUG] Found optimizer state '{k}' on {v.device}, param on {param_device}")
+                    needs_device_update = True
+                    break
+            if needs_device_update:
+                break
+        
+        if needs_device_update:
+            print("[DEBUG] Updating optimizer state devices...")
+            for param, state in optimizer.state.items():
+                for k, v in state.items():
+                    if torch.is_tensor(v) and v.device != param.device:
+                        optimizer.state[param][k] = v.to(param.device)
+                        print(f"[DEBUG] Moved optimizer state '{k}' to {param.device}")
+    
+    # Force optimizer to update its internal state
+    if hasattr(optimizer, 'reload_model_params'):
+        print("[DEBUG] Reloading model params in optimizer...")
+        optimizer.reload_model_params()
+    
     clear_memory()
-
+    
+    print("[DEBUG] Model and optimizer initialization complete")
     return model, optimizer, opt_param_scheduler, iteration
+
+
+
+

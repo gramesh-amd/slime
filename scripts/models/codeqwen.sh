@@ -1,0 +1,26 @@
+MODEL_ARGS=(
+  --swiglu
+  --num-layers 32
+  --hidden-size 4096
+  --ffn-hidden-size 13440
+  --num-attention-heads 32
+  --use-rotary-position-embeddings
+  --disable-bias-linear
+  --add-qkv-bias
+  --normalization RMSNorm
+  --norm-epsilon 1e-5
+  --rotary-base 1000000
+  --group-query-attention
+  --num-query-groups 4
+  --vocab-size 92416
+  --max-position-embeddings 65536
+  --attention-dropout 0.0
+  --hidden-dropout 0.0
+  --untie-embeddings-and-output-weights 
+  --no-gradient-accumulation-fusion
+  --no-bias-gelu-fusion
+  --no-bias-swiglu-fusion
+  --no-bias-dropout-fusion
+  --no-masked-softmax-fusion
+  --no-rope-fusion
+)

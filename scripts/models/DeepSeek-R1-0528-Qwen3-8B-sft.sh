@@ -16,4 +16,9 @@ MODEL_ARGS=(
    --kv-channels 128
    --qk-layernorm
    --untie-embeddings-and-output-weights
+   --seq-length 131072
+   --position-embedding-type rope
+   --rotary-scaling-factor 4.0
+   --no-rope-fusion
+   --max-position-embeddings 131072
 )
