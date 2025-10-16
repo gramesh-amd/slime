@@ -12,6 +12,11 @@ pkill -9 python
 
 set -ex
 
+# For AMD GPU
+export RAY_EXPERIMENTAL_NOSET_HIP_VISIBLE_DEVICES=${RAY_EXPERIMENTAL_NOSET_HIP_VISIBLE_DEVICES:-"1"} # Must set to 1
+export HIP_VISIBLE_DEVICES=${HIP_VISIBLE_DEVICES:-"0,1,2,3,4,5,6,7"} #You can choose which gpus to use
+
+
 # will prevent ray from buffering stdout/stderr
 export PYTHONBUFFERED=16
 
@@ -48,9 +53,9 @@ ROLLOUT_ARGS=(
    --rollout-max-response-len 8192
    --rollout-temperature 0.8
 
-   --partial-rollout
-   --over-sampling-batch-size 64
-
+   # uncomment to use partial rollout
+   # --partial-rollout
+   # --over-sampling-batch-size 64
 
    --global-batch-size 256
    --balance-data

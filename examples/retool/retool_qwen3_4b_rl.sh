@@ -48,6 +48,10 @@ ROLLOUT_ARGS=(
    --rollout-max-response-len 8192
    --rollout-temperature 0.8
 
+   # uncomment to use partial rollout
+   # --partial-rollout
+   # --over-sampling-batch-size 64
+
    --global-batch-size 256
    --balance-data
 )
