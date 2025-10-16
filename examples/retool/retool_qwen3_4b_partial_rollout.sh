@@ -49,7 +49,7 @@ ROLLOUT_ARGS=(
    --rollout-temperature 0.8
 
    --partial-rollout
-   --over-sampling-batch-size 32
+   --over-sampling-batch-size 64
 
 
    --global-batch-size 256
