@@ -336,6 +336,10 @@ async def generate(args, sample: Sample, sampling_params) -> Sample:
         tool_call_count = 0
         start_turn = 0
 
+
+    output = None
+
+    
     for turn in range(start_turn, TOOL_CONFIGS["max_turns"]):
         current_length = len(prompt_tokens_ids) + len(response_token_ids)
         remaining_context = MAX_CONTEXT_LENGTH - current_length - SAFETY_MARGIN
@@ -344,7 +348,7 @@ async def generate(args, sample: Sample, sampling_params) -> Sample:
             break
 
         adjusted_max_tokens = min(
-            sampling_params["max_new_tokens"], # this is usally the --rollout-max-response-len
+            sampling_params["max_new_tokens"], # this is usually the --rollout-max-response-len
             remaining_context
         )
 
@@ -480,14 +484,18 @@ async def generate(args, sample: Sample, sampling_params) -> Sample:
     # Store tool call count for reward calculation
     sample.tool_call_count = tool_call_count
 
-    # Set status
-    match output["meta_info"]["finish_reason"]["type"]:
-        case "length":
-            sample.status = Sample.Status.TRUNCATED
-        case "abort":
-            sample.status = Sample.Status.ABORTED
-        case "stop":
-            sample.status = Sample.Status.COMPLETED
+    # Set status based on finish reason
+    if output is not None:
+        # Output exists, use its finish reason
+        match output["meta_info"]["finish_reason"]["type"]:
+            case "length":
+                sample.status = Sample.Status.TRUNCATED
+            case "abort":
+                sample.status = Sample.Status.ABORTED
+            case "stop":
+                sample.status = Sample.Status.COMPLETED
+    else:
+        sample.status = Sample.Status.TRUNCATED
 
     return sample
 
