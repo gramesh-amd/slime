@@ -17,33 +17,6 @@ set -ex
 export RAY_EXPERIMENTAL_NOSET_HIP_VISIBLE_DEVICES=${RAY_EXPERIMENTAL_NOSET_HIP_VISIBLE_DEVICES:-"1"} # Must set to 1
 export HIP_VISIBLE_DEVICES=${HIP_VISIBLE_DEVICES:-"0,1,2,3,4,5,6,7"} #You can choose which gpus to use
 
-# RCCL/NCCL settings - set before Ray starts so they're inherited by all workers
-export NCCL_DEBUG=INFO
-export RCCL_MSCCL_ENABLE=0
-export NCCL_IB_DISABLE=1
-export NCCL_SOCKET_IFNAME=lo
-export HIP_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
-export PYTORCH_HIP_ALLOC_CONF=expandable_segments:True
-export HSA_FORCE_FINE_GRAIN_PCIE=1
-# Disable memory saver which can cause hangs (torch_memory_saver is CUDA-only)
-export SGLANG_ENABLE_MEMORY_SAVER=0
-export TORCH_MEMORY_SAVER_DISABLE=1
-
-# Create libcuda stubs for ROCm compatibility (prevents "libcuda.so.1" errors)
-if [ ! -f /usr/local/lib/libcuda.so.1 ]; then
-    ln -sf /opt/rocm/lib/libamdhip64.so /usr/local/lib/libcuda.so.1 2>/dev/null || true
-    ln -sf /opt/rocm/lib/libamdhip64.so /usr/local/lib/libcudart.so.12 2>/dev/null || true
-    ldconfig 2>/dev/null || true
-fi
-
-# Disable torch_memory_saver preload library (incompatible with ROCm)
-TMS_LIB="/opt/venv/lib/python3.10/site-packages/torch_memory_saver_hook_mode_preload.abi3.so"
-if [ -f "$TMS_LIB" ]; then
-    mv "$TMS_LIB" "${TMS_LIB}.disabled" 2>/dev/null || true
-fi
-
-export LD_LIBRARY_PATH=/opt/rocm/lib:/opt/rocm/hip/lib:/usr/local/lib:${LD_LIBRARY_PATH:-}
-
 # will prevent ray from buffering stdout/stderr
 export PYTHONBUFFERED=16
 
@@ -56,10 +29,10 @@ fi
 echo "HAS_NVLINK: $HAS_NVLINK (detected $NVLINK_COUNT NVLink references)"
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
-source "/home/goramesh/slime/scripts/models/qwen3-30B-A3B.sh"
+source "${SCRIPT_DIR}/scripts/models/qwen3-30B-A3B.sh"
 
 # Base directory for checkpoints
-BASE_DIR="/home/goramesh/slime/models"
+BASE_DIR="${SCRIPT_DIR}/models"
 
 CKPT_ARGS=(
    --hf-checkpoint ${BASE_DIR}/Qwen3-30B-A3B
@@ -70,7 +43,7 @@ CKPT_ARGS=(
 )
 
 ROLLOUT_ARGS=(
-   --prompt-data /home/goramesh/slime/data/dapo-math-17k/dapo-math-17k.jsonl
+   --prompt-data data/dapo-math-17k/dapo-math-17k.jsonl
    --input-key prompt
    --label-key label
    --apply-chat-template
@@ -88,7 +61,7 @@ ROLLOUT_ARGS=(
 
 EVAL_ARGS=(
    --eval-interval 10
-   --eval-prompt-data aime /home/goramesh/slime/data/aime-2024/aime-2024.jsonl
+   --eval-prompt-data data/aime-2024/aime-2024.jsonl
    --n-samples-per-eval-prompt 1
    --eval-max-response-len 16384
    --eval-top-p 0.7
@@ -141,7 +114,7 @@ WANDB_ARGS=(
    --use-wandb
    --wandb-project mi355-slime-mis
    --wandb-group qwen3-30b-a3b-mis
-   --wandb-key fb94b9f175c5ed0d600273fbe3da2dbf8a440671
+   --wandb-key {WANDB_API_KEY}
 )
 
 # MoE model: use full node for inference engine
@@ -173,11 +146,7 @@ CUSTOM_ARGS=(
 # launch the master node of ray in container
 export MASTER_ADDR=${MASTER_ADDR:-"127.0.0.1"}
 
-# Use /dev/shm for Ray temp directory (root partition is full, /dev/shm has 1.5TB free)
-export RAY_TMPDIR=/dev/shm/ray_tmp_${USER}
-mkdir -p ${RAY_TMPDIR}
-
-ray start --head --node-ip-address ${MASTER_ADDR} --num-gpus 8 --disable-usage-stats --dashboard-host=0.0.0.0 --dashboard-port=8265 --temp-dir=${RAY_TMPDIR}
+ray start --head --node-ip-address ${MASTER_ADDR} --num-gpus 8 --disable-usage-stats --dashboard-host=0.0.0.0 --dashboard-port=8265
 
 # Build the runtime environment JSON with proper variable substitution
 # Note: Most env vars are now exported before ray start and inherited automatically
