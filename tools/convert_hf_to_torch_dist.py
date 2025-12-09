@@ -29,6 +29,11 @@ def add_convertion_args(parser):
 
 
 def get_args():
+    if torch.version.hip:
+        import megatron.core.dist_checkpointing.strategies.filesystem_async as filesystem_async_module
+        from slime.utils.rocm_checkpoint_writer import ROCmFileSystemWriterAsync
+        filesystem_async_module.FileSystemWriterAsync = ROCmFileSystemWriterAsync
+        print("[ROCm] Applied FileSystemWriterAsync patch for HIP compatibility")
     args = parse_args(add_convertion_args)
     args = set_default_megatron_args(args)
 
