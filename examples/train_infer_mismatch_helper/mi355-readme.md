@@ -3,7 +3,7 @@
 You can setup the docker image from slime/docker/Dockerfile.rocm7.gfx950:
 
 ```bash
-cd docker
+cd <slime-repo>/docker
 docker build -f Dockerfile.rocm7.gfx950 -t slime-rocm7-mi355:latest .
 ```
 
