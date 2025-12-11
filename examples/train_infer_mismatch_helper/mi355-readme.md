@@ -45,6 +45,7 @@ Convert model weights from hf to torch_dist
 ```bash
 cd <slime-repo>
 MEGATRON_LM_PATH=$(pip list | grep megatron-core | awk '{print $NF}') # /app/Megatron-LM in our docker
+source <slime-repo>/scripts/models/qwen3-4B.sh
 PYTHONPATH=${MEGATRON_LM_PATH} python tools/convert_hf_to_torch_dist.py ${MODEL_ARGS[@]}     \
 --no-gradient-accumulation-fusion    \
 --hf-checkpoint models/Qwen3-30B-A3B     \
@@ -52,6 +53,7 @@ PYTHONPATH=${MEGATRON_LM_PATH} python tools/convert_hf_to_torch_dist.py ${MODEL_
 
 
 MEGATRON_LM_PATH=$(pip list | grep megatron-core | awk '{print $NF}') # /app/Megatron-LM in our docker
+source <slime-repo>/scripts/models/qwen3-30B-A3B.sh
 PYTHONPATH=${MEGATRON_LM_PATH} python tools/convert_hf_to_torch_dist.py ${MODEL_ARGS[@]}     \
 --no-gradient-accumulation-fusion    \
 --hf-checkpoint models/Qwen/Qwen3-4B    \
