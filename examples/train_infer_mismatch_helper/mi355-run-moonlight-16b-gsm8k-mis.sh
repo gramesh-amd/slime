@@ -125,7 +125,7 @@ WANDB_ARGS=(
    --use-wandb
    --wandb-project mi355-slime-mis
    --wandb-group moonlight-16b-a3b-gsm8k-mis-testing
-   --wandb-key fb94b9f175c5ed0d600273fbe3da2dbf8a440671
+   --wandb-key ${WANDB_API_KEY}
 )
 
 # currently test everything with tp=1

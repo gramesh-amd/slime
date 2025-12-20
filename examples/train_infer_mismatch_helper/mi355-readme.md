@@ -39,6 +39,7 @@ Download the models and datasets:
 # model downloads
 huggingface-cli download Qwen/Qwen3-4B --local-dir models/Qwen/Qwen3-4B
 huggingface-cli download Qwen/Qwen3-30B-A3B --local-dir models/Qwen/Qwen3-30B-A3B
+huggingface-cli download moonshotai/Moonlight-16B-A3B --local-dir models/moonshotai/Moonlight-16B-A3B
 
 # train/eval data download
 # dapo
