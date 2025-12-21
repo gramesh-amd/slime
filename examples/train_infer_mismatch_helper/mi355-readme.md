@@ -1,26 +1,29 @@
-# Docker
+# Quick start
+
+Download the docker image from docker hub:
+```bash
+docker pull grameshamd/miles-slime-rocm7-mi35x:mla-fix
+```
+or
 
 You can setup the docker image from slime/docker/Dockerfile.rocm7.gfx950:
 
 ```bash
 cd <slime-repo>/docker
-docker build -f Dockerfile.rocm7.gfx950 -t slime-rocm7-mi355:latest .
+docker build -f Dockerfile.rocm7.gfx950 -t <name>:latest .
 ```
 
-# Quick start
-
-Download the docker image from docker hub:
-```bash
-docker pull rlsys/miles:MI350-355-latest
-```
-or
  
 Start your docker container based on the above built image:
 ```bash
-docker run -it --rm --device=/dev/kfd --device=/dev/dri --ipc=host \
-  --name slime-session2 \
-  -v /home/goramesh:/home/goramesh \
-  slime-rocm7-mi355:latest bash
+docker run -it --rm \
+    --device=/dev/kfd \
+    --device=/dev/dri \
+    --ipc=host   \
+    --network host   \
+    --name slime-session2  \
+    -v /home/goramesh:/home/goramesh \
+    grameshamd/miles-slime-rocm7-mi35x:mla-fix bash
 
 ```
 
@@ -45,7 +48,7 @@ huggingface-cli download moonshotai/Moonlight-16B-A3B --local-dir models/moonsho
 # dapo
 huggingface-cli download --repo-type dataset zhuzilin/dapo-math-17k --local-dir data/dapo-math-17k
 
-# aime(eval)
+# aime 2024(eval)
 huggingface-cli download --repo-type dataset zhuzilin/aime-2024 --local-dir data/aime-2024
 
 # gsm8k
@@ -55,15 +58,15 @@ huggingface-cli download --repo-type dataset zhuzilin/gsm8k --local-dir data/gsm
 Convert model weights from hf to torch_dist
 ```bash
 cd <slime-repo>
+
 MEGATRON_LM_PATH=$(pip list | grep megatron-core | awk '{print $NF}') # /app/Megatron-LM in our docker
+
 source <slime-repo>/scripts/models/qwen3-30B-A3B.sh
 PYTHONPATH=${MEGATRON_LM_PATH} python tools/convert_hf_to_torch_dist.py ${MODEL_ARGS[@]}     \
 --no-gradient-accumulation-fusion    \
 --hf-checkpoint models/Qwen3-30B-A3B     \
 --save models/Qwen/Qwen3-30B-A3B_torch_dist
 
-
-MEGATRON_LM_PATH=$(pip list | grep megatron-core | awk '{print $NF}') # /app/Megatron-LM in our docker
 source <slime-repo>/scripts/models/qwen3-4B.sh
 PYTHONPATH=${MEGATRON_LM_PATH} python tools/convert_hf_to_torch_dist.py ${MODEL_ARGS[@]}     \
 --no-gradient-accumulation-fusion    \
@@ -72,8 +75,8 @@ PYTHONPATH=${MEGATRON_LM_PATH} python tools/convert_hf_to_torch_dist.py ${MODEL_
 
 
 # convert hf checkpoint to torch dist for Moonlight-16B-A3B
-source scripts/models/moonlight.sh
-PYTHONPATH=/app/Megatron-LM python tools/convert_hf_to_torch_dist.py ${MODEL_ARGS[@]} \
+source <slime-repo>/scripts/models/moonlight.sh
+PYTHONPATH=${MEGATRON_LM_PATH} python tools/convert_hf_to_torch_dist.py ${MODEL_ARGS[@]} \
     --no-gradient-accumulation-fusion \
     --hf-checkpoint models/moonshotai/Moonlight-16B-A3B \
     --save models/moonshotai/Moonlight-16B-A3B_torch_dist \
