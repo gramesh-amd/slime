@@ -43,6 +43,7 @@ Download the models and datasets:
 huggingface-cli download Qwen/Qwen3-4B --local-dir models/Qwen/Qwen3-4B
 huggingface-cli download Qwen/Qwen3-30B-A3B --local-dir models/Qwen/Qwen3-30B-A3B
 huggingface-cli download moonshotai/Moonlight-16B-A3B --local-dir models/moonshotai/Moonlight-16B-A3B
+huggingface-cli download deepseek-ai/DeepSeek-V2-Lite-Chat --local-dir models/deepseek-ai/DeepSeek-V2-Lite-Chat
 
 # train/eval data download
 # dapo
@@ -81,6 +82,14 @@ PYTHONPATH=${MEGATRON_LM_PATH} python tools/convert_hf_to_torch_dist.py ${MODEL_
     --hf-checkpoint models/moonshotai/Moonlight-16B-A3B \
     --save models/moonshotai/Moonlight-16B-A3B_torch_dist \
     --trust-remote-code
+
+# convert hf checkpoint to torch dist for DeepSeek-V2-Lite-Chat
+source <slime-repo>/scripts/models/deepseek-v2-lite.sh
+PYTHONPATH=${MEGATRON_LM_PATH} python tools/convert_hf_to_torch_dist.py ${MODEL_ARGS[@]} \
+    --no-gradient-accumulation-fusion \
+    --hf-checkpoint models/deepseek-ai/DeepSeek-V2-Lite-Chat \
+    --save models/deepseek-ai/DeepSeek-V2-Lite-Chat_torch_dist \
+    --trust-remote-code
 ```
 
 
@@ -100,7 +109,11 @@ bash examples/train_infer_mismatch_helper/mi355-run-qwen3-30b-a3b-mis.sh
 # gsm8k train + eval
 bash examples/train_infer_mismatch_helper/mi355-run-moonlight-16b-gsm8k-mis.sh
 # dapo17k train + aime2024 eval
-bash examples/train_infer_mismatch_helper/mi355-run-moonlight-16b-a3b-mis.sh
+bash examples/train_infer_mismatch_helper/mi355-run-moonlight-16b-13b-mis.sh
+
+# test deepseek-v2-lite (MLA MoE model, 16B total / 2.4B activated)
+# dapo17k train + aime2024 eval
+bash examples/train_infer_mismatch_helper/mi355-run-deepseek-v2-lite-dapo-aime-mis.sh
 
 ```
 

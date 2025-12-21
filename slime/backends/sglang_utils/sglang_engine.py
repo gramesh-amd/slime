@@ -91,6 +91,15 @@ class SGLangEngine(RayActor):
         self.worker_type = worker_type
 
     def init(self, dist_init_addr, port, nccl_port, host=None):
+        # Stagger engine startup to avoid HIP/ROCm race conditions during parallel initialization
+        # Each engine waits (rank * delay) seconds before starting
+        startup_delay = getattr(self.args, "sglang_engine_startup_delay", 0)
+        if startup_delay > 0 and self.rank > 0:
+            delay = self.rank * startup_delay
+            logger.info(f"SGLang engine rank={self.rank}: waiting {delay}s before initialization (staggered startup)")
+            import time
+            time.sleep(delay)
+
         self.router_ip = self.args.sglang_router_ip
         self.router_port = self.args.sglang_router_port
 

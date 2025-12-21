@@ -36,6 +36,12 @@ def add_sglang_arguments(parser):
     """
     parser = add_sglang_router_arguments(parser)
     parser.add_argument("--sglang-server-concurrency", type=int, default=512)
+    parser.add_argument(
+        "--sglang-engine-startup-delay",
+        type=int,
+        default=0,
+        help="Delay in seconds between the startup of each SGLang engine to prevent race conditions.",
+    )
 
     old_add_argument = parser.add_argument
 
