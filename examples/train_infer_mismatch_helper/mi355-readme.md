@@ -43,6 +43,7 @@ Download the models and datasets:
 huggingface-cli download Qwen/Qwen3-4B --local-dir models/Qwen/Qwen3-4B
 huggingface-cli download Qwen/Qwen3-30B-A3B --local-dir models/Qwen/Qwen3-30B-A3B
 huggingface-cli download moonshotai/Moonlight-16B-A3B --local-dir models/moonshotai/Moonlight-16B-A3B
+huggingface-cli download Qwen/Qwen3-235B-A22B --local-dir models/Qwen/Qwen3-235B-A22B
 
 # train/eval data download
 # dapo
@@ -81,6 +82,9 @@ PYTHONPATH=${MEGATRON_LM_PATH} python tools/convert_hf_to_torch_dist.py ${MODEL_
     --hf-checkpoint models/moonshotai/Moonlight-16B-A3B \
     --save models/moonshotai/Moonlight-16B-A3B_torch_dist \
     --trust-remote-code
+
+# convert hf checkpoint to torch dist for qwen3-235b-a22b (slurm launcher)
+NNODES=4 ./examples/train_infer_mismatch_helper/qwen3_235b-a22b/convert/run_slurm_convert_model.sh
 ```
 
 
@@ -101,6 +105,9 @@ bash examples/train_infer_mismatch_helper/mi355-run-qwen3-30b-a3b-mis.sh
 bash examples/train_infer_mismatch_helper/mi355-run-moonlight-16b-gsm8k-mis.sh
 # dapo17k train + aime2024 eval
 bash examples/train_infer_mismatch_helper/mi355-run-moonlight-16b-a3b-mis.sh
+
+# multi-node qwen3-245b-a22b
+NNODES=4 ./examples/train_infer_mismatch_helper/qwen3_235b-a22b/train-gsm8k-mis/run_slurm_train.sh
 
 ```
 
