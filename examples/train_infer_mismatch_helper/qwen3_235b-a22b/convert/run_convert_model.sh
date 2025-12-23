@@ -113,14 +113,25 @@ PYTHONPATH=/app/Megatron-LM torchrun \
     ${DISTRIBUTED_ARGS[*]} \
     ${SLIME_PATH}/tools/convert_hf_to_torch_dist.py \
     ${MODEL_ARGS[@]} \
-    --tensor-model-parallel-size 1 \
-    --pipeline-model-parallel-size 4 \
-    --expert-model-parallel-size 8 \
-    --expert-tensor-parallel-size 1 \
-    --decoder-last-pipeline-num-layers 22 \
     --no-gradient-accumulation-fusion \
-    --hf-checkpoint ${SLIME_PATH}/models/Qwen/Qwen3-235B-A22B-FP8 \
-    --save ${SLIME_PATH}/models/Qwen/Qwen3-235B-A22B-FP8_torch_dist \
+    --hf-checkpoint ${SLIME_PATH}/models/Qwen/Qwen3-235B-A22B \
+    --save ${SLIME_PATH}/models/Qwen/Qwen3-235B-A22B_torch_dist \
     --trust-remote-code \
-    2>&1 | tee ${LOG_DIR}/log_convert_qwen3-235B-A22B-FP8-${NODE_RANK}.log
+    2>&1 | tee ${LOG_DIR}/log_convert_qwen3-235B-A22B-${NODE_RANK}.log
     # --tensor-model-parallel-size 4 \
+
+# PYTHONPATH=/app/Megatron-LM torchrun \
+#     ${DISTRIBUTED_ARGS[*]} \
+#     ${SLIME_PATH}/tools/convert_hf_to_torch_dist.py \
+#     ${MODEL_ARGS[@]} \
+#     --tensor-model-parallel-size 1 \
+#     --pipeline-model-parallel-size 4 \
+#     --expert-model-parallel-size 8 \
+#     --expert-tensor-parallel-size 1 \
+#     --decoder-last-pipeline-num-layers 22 \
+#     --no-gradient-accumulation-fusion \
+#     --hf-checkpoint ${SLIME_PATH}/models/Qwen/Qwen3-235B-A22B-FP8 \
+#     --save ${SLIME_PATH}/models/Qwen/Qwen3-235B-A22B-FP8_torch_dist \
+#     --trust-remote-code \
+#     2>&1 | tee ${LOG_DIR}/log_convert_qwen3-235B-A22B-FP8-${NODE_RANK}.log
+#     # --tensor-model-parallel-size 4 \

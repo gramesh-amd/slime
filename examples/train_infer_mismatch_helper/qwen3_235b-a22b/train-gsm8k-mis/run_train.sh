@@ -1,4 +1,21 @@
 #!/bin/bash
+# =============================================================================
+# QWEN3-235B-A22B MULTINODE TRAINING SCRIPT - GSM8K
+# =============================================================================
+# 
+# This script runs distributed training for Qwen3-235B-A22B on a multinode
+# Ray cluster with the GSM8K dataset (simpler math problems).
+#
+# Cluster Requirements:
+#   - 4 nodes with 8 GPUs each (32 GPUs total)
+#   - AMD MI355 GPUs with 275 GB HBM each
+#   - ~1.6 TB CPU RAM per node
+#   - Shared filesystem (WekaFS) accessible from all nodes
+#
+# Usage:
+#   NNODES=4 bash examples/train_infer_mismatch_helper/qwen3_235b-a22b/train-gsm8k-mis/run_train.sh
+#
+# =============================================================================
 
 
 # Qwen3-235B-A22B (235B total, 22B activated) MoE training script for GSM8K
@@ -113,21 +130,23 @@ echo "RANK-${NODE_RANK}, Installing slime done..."
 
 # disable torch.dist patch in megatron
 echo "RANK-${NODE_RANK}, Disabling torch.dist patch in megatron..."
-# TODO(wenx)
 # cd $SLIME_PATH/bak && ./patch.sh && cd ..
 echo "RANK-${NODE_RANK}, Disabling torch.dist patch in megatron done..."
 
 
 source ${SLIME_PATH}/scripts/models/qwen3-235B-A22B.sh
 
+  #  --load ${SLIME_PATH}/models/Qwen/Qwen3-235B-A22B_slime/
 CKPT_ARGS=(
-   --hf-checkpoint ${SLIME_PATH}/models/Qwen/Qwen3-235B-A22B-FP8
-   --ref-load ${SLIME_PATH}/models/Qwen/Qwen3-235B-A22B-FP8_torch_dist
-   --load ${SLIME_PATH}/models/Qwen/Qwen3-235B-A22B-FP8_slime/
-   --save ${SLIME_PATH}/models/Qwen/Qwen3-235B-A22B-FP8_slime/
-   --save-interval 20
+   --hf-checkpoint ${SLIME_PATH}/models/Qwen/Qwen3-235B-A22B
+   --ref-load ${SLIME_PATH}/models/Qwen/Qwen3-235B-A22B_torch_dist
+   --save ${BASE_DIR}/models/Qwen/Qwen3-235B-A22B_gsm8k_slime_$(date +%Y%m%d_%H%M%S)/
+   --save-interval 50
 )
 
+# =============================================================================
+# ROLLOUT / DATA ARGUMENTS - GSM8K
+# =============================================================================
 ROLLOUT_ARGS=(
    --prompt-data ${SLIME_PATH}/data/gsm8k/train.parquet
    --input-key messages
@@ -135,26 +154,34 @@ ROLLOUT_ARGS=(
    --apply-chat-template
    --rollout-shuffle
 
-   # We need to use math reward model (extracts \boxed{} without requiring </think> tags) as deepscaler reward model needs </think> tags
-   --rm-type math
-
+   # Use deepscaler reward model - extracts answer after </think> tag
+   # Qwen3 supports thinking mode with <think>...</think> tags
+   --rm-type deepscaler
+   
    --num-rollout 64
-   --rollout-batch-size 32
-   --n-samples-per-prompt 8
-   # GSM8K problems are simpler - 1024 tokens is sufficient for responses
+   --rollout-batch-size 4           # 4 * n_samples(4) = 16 = global_batch_size
+   --n-samples-per-prompt 4         # Standard for GRPO
+   # GSM8K is simpler - 1024 tokens sufficient for responses
    --rollout-max-response-len 1024
    --rollout-temperature 0.8
+   --global-batch-size 16           # Must be divisible by DP=8
 
-   --num-steps-per-rollout 4
+  #  --num-rollout 64
+  #  --rollout-batch-size 32
+  #  --n-samples-per-prompt 8
+  #  # GSM8K problems are simpler - 1024 tokens is sufficient for responses
+  #  --rollout-max-response-len 1024
+  #  --rollout-temperature 0.8
+  #  --num-steps-per-rollout 4
+  #  # global_batch_size = rollout_batch_size * n_samples_per_prompt // num_steps_per_rollout
+  #  # 64 = 32 * 8 // 4
+  #  --global-batch-size 64
 
-   # global_batch_size = rollout_batch_size * n_samples_per_prompt // num_steps_per_rollout
-   # 64 = 32 * 8 // 4
-   --global-batch-size 64
    --balance-data
 )
 
 EVAL_ARGS=(
-   #--eval-interval 20
+   --eval-interval 50
    --eval-prompt-data gsm8k ${SLIME_PATH}/data/gsm8k/test.parquet
    --n-samples-per-eval-prompt 1
    # GSM8K eval - 1024 tokens is sufficient
@@ -162,59 +189,99 @@ EVAL_ARGS=(
    --eval-top-k 1
 )
 
+# =============================================================================
+# PARALLELISM CONFIGURATION (32 GPUs across 4 nodes)
+# =============================================================================
+# Qwen3-235B-A22B: 94 layers, 128 experts, 4 query groups (GQA)
+# 
+# CONSTRAINT: TP must divide num_query_groups (4), so TP ∈ {1, 2, 4}
+#
+# For 32 GPUs (4 nodes x 8 GPUs):
+# - Tensor Parallel (TP): 4 (max allowed by 4 query groups)
+# - Pipeline Parallel (PP): 1 (no pipeline parallelism)
+# - Expert Model Parallel (EP): 8 (128 experts / 8 = 16 experts per GPU group)
+# - Context Parallel (CP): 1 (no sequence splitting)
+# - Data Parallel (DP): 32 / (4 * 1) = 8
+#
+# Training uses: 4 nodes x 8 GPUs = 32 GPUs
+# Rollout uses: 32 GPUs with SGLang DP/EP
+
 PERF_ARGS=(
    --tensor-model-parallel-size 4
    --sequence-parallel
-   --pipeline-model-parallel-size 4
-   --context-parallel-size 2
+   --pipeline-model-parallel-size 1
+   --context-parallel-size 1
    --expert-model-parallel-size 8
    --expert-tensor-parallel-size 1
-   --decoder-last-pipeline-num-layers 22
-
+   
    --recompute-granularity full
    --recompute-method uniform
    --recompute-num-layers 1
-
-   # --micro-batch-size 1
+   
    --use-dynamic-batch-size
-   # Can try increasing if GPU memory allows (official uses 16384)
-   --max-tokens-per-gpu 8192
+   --max-tokens-per-gpu 4096        # Adequate with 1.6TB RAM per node
 )
 
+# =============================================================================
+# GRPO / RL ALGORITHM ARGUMENTS
+# =============================================================================
 GRPO_ARGS=(
    --advantage-estimator grpo
    --use-kl-loss
    --kl-loss-coef 0.00
    --kl-loss-type low_var_kl
    --entropy-coef 0.00
-   # --eps-clip 4e-4
    --eps-clip 0.2
    --eps-clip-high 0.28
-   --use-tis
 )
 
+# =============================================================================
+# OPTIMIZER ARGUMENTS
+# =============================================================================
 OPTIMIZER_ARGS=(
    --optimizer adam
-   --lr 1e-6
+   --lr 5e-7                         # Lower LR for large model stability
    --lr-decay-style constant
    --weight-decay 0.1
    --adam-beta1 0.9
    --adam-beta2 0.98
-
-   --optimizer-cpu-offload
-   --overlap-cpu-optimizer-d2h-h2d
+   
+   # CPU offload disabled - causes CPU RAM OOM during initialization
+   # With 275 GB GPU memory and colocate mode, keep optimizer on GPU
+   # --optimizer-cpu-offload
+   # --overlap-cpu-optimizer-d2h-h2d
    --use-precision-aware-optimizer
 )
 
+# =============================================================================
+# WANDB LOGGING
+# =============================================================================
+export WANDB_API_KEY=2306e9cea020b222412e4a4c0912e05c0722f4e2
 WANDB_ARGS=(
    --use-wandb
-   --wandb-project mi355-slime-mis
-   --wandb-group qwen3-235b-a22b-gsm8k-mis
+   --wandb-project slime-qwen235
+   --wandb-group qwen3-235b-a22b-gsm8k-multinode
    --wandb-key ${WANDB_API_KEY}
 )
 
-# currently test everything with tp=1
-# sglang 0.5.6 has inference output differences with biggers tps [TODO: fix this]
+# =============================================================================
+# SGLANG INFERENCE ENGINE CONFIGURATION
+# =============================================================================
+# SGLANG_ARGS=(
+#    --rollout-num-gpus-per-engine 32  # 4 nodes x 8 GPUs = 32 total
+#    --sglang-mem-fraction-static 0.45 # More headroom with 1.6TB RAM
+#    --sglang-enable-dp-attention
+#    --sglang-dp-size 4                # 4 DP replicas (32/4=8 GPUs each)
+#    --sglang-ep-size 8                # EP=8 within each 8-GPU replica
+#    --sglang-enable-dp-lm-head
+#    --sglang-disable-cuda-graph       # Disable for AMD compatibility
+#    --sglang-disable-custom-all-reduce # Skip JIT compilation that causes crash
+   
+#    # MoE-specific settings
+#    --use-slime-router
+#    # Use aiter attention backend for MLA models on ROCm (required for fused MLA)
+#   #  --sglang-attention-backend aiter
+# )
 SGLANG_ARGS=(
    --rollout-num-gpus-per-engine 32
    --sglang-mem-fraction-static 0.5
@@ -229,18 +296,19 @@ SGLANG_ARGS=(
    # --sglang-moe-a2a-backend deepep
    # --sglang-deepep-mode auto
    --sglang-disable-cuda-graph
+   --sglang-disable-custom-all-reduce # Skip JIT compilation that causes crash
    # Use aiter attention backend for MLA models on ROCm (required for fused MLA)
-   --sglang-attention-backend aiter
+  #  --sglang-attention-backend aiter
 )
 
+# =============================================================================
+# MISCELLANEOUS ARGUMENTS
+# =============================================================================
 MISC_ARGS=(
-   # default dropout in megatron is 0.1
    --attention-dropout 0.0
    --hidden-dropout 0.0
-   # should be good for model performance
    --accumulate-allreduce-grads-in-fp32
    --attention-softmax-in-fp32
-   # need to comment this when using model with MLA
    --attention-backend flash
    --no-gradient-accumulation-fusion
 )
@@ -252,13 +320,15 @@ CUSTOM_ARGS=(
 
 
 # launch the master node of ray in container
-export no_proxy="127.0.0.1,${MASTER_ADDR}"
+# export no_proxy="127.0.0.1,${MASTER_ADDR}"
+
+export RAY_HEAD_MASTER_PORT=1235
 
 # Check if this is the master node (NODE_RANK=0)
 if [ "${NODE_RANK}" = "0" ]; then
   LOG_INFO "========== Master Node (NODE_RANK=${NODE_RANK}) =========="
   LOG_INFO "Starting Ray head on ${MASTER_ADDR}"
-  ray start --head --node-ip-address ${MASTER_ADDR} --num-gpus 8 --disable-usage-stats --dashboard-host=0.0.0.0 --dashboard-port=8265
+  ray start --head --node-ip-address ${MASTER_ADDR} --port=${RAY_HEAD_MASTER_PORT} --num-gpus 8 --disable-usage-stats --dashboard-host=0.0.0.0 --dashboard-port=8265
   
   # SSH to all worker nodes and start ray workers
   worker_id=0
@@ -277,7 +347,7 @@ if [ "${NODE_RANK}" = "0" ]; then
         sleep 2
       done
       echo "  >[WORKER-'"${worker_id}"' $(hostname)] Container found, starting Ray worker..."
-      docker exec dev_train bash -c "pkill -9 sglang ; ray stop --force ; pkill -9 python ; ray start --address='"${MASTER_ADDR}"':6379 --num-gpus 8 --node-ip-address '"${WORKER_IP}"' --disable-usage-stats --dashboard-host=0.0.0.0 --dashboard-port=8265"
+      docker exec dev_train bash -c "pkill -9 sglang ; ray stop --force ; pkill -9 python ; ray start --address='"${MASTER_ADDR}"':'"${RAY_HEAD_MASTER_PORT}"' --num-gpus 8 --node-ip-address '"${WORKER_IP}"' --disable-usage-stats --dashboard-host=0.0.0.0 --dashboard-port=8265"
       echo "  >[WORKER-'"${worker_id}"' $(hostname)] Ray worker async started successfully!"
     '
     # ' &
@@ -304,18 +374,32 @@ fi
 
 # Only master node submits the Ray job
 if [ "${NODE_RANK}" = "0" ]; then
-  LOG_INFO "========== Submitting Ray Job from Master Node =========="
+  # =============================================================================
+  # LAUNCH TRAINING JOB
+  # =============================================================================
+  LOG_INFO "============================================================"
+  LOG_INFO "LAUNCHING QWEN3-235B-A22B MULTINODE TRAINING (GSM8K)"
+  LOG_INFO "============================================================"
+  LOG_INFO "Submitting Ray Job from Master Node"
+  LOG_INFO "Ray Address: ${RAY_ADDRESS}"
+  LOG_INFO "Model: Qwen3-235B-A22B (235B total, 22B activated)"
+  LOG_INFO "Dataset: GSM8K (grade school math)"
+  LOG_INFO "Cluster: 4 nodes x 8 GPUs = 32 GPUs (colocated training+rollout)"
+  LOG_INFO "Parallelism: TP=4, PP=1, EP=8, DP=8"
+  LOG_INFO "Training Script: ${TRAIN_SCRIPT}"
+  LOG_INFO "============================================================"
   
+      # \"no_proxy\": \"${no_proxy}\",
+      # \"SGLANG_USE_AITER\": \"1\",
+      # \"SGLANG_ROCM_FUSED_DECODE_MLA\": \"1\",
   # Build the runtime environment JSON with proper variable substitution
   RUNTIME_ENV_JSON="{
     \"env_vars\": {
       \"PYTHONPATH\": \"/app/Megatron-LM/\",
       \"CUDA_DEVICE_MAX_CONNECTIONS\": \"${CUDA_DEVICE_MAX_CONNECTIONS:-1}\",
       \"NCCL_NVLS_ENABLE\": \"${HAS_NVLINK}\",
-      \"no_proxy\": \"${no_proxy}\",
+      \"SLIME_HOST_IP\": \"${MASTER_ADDR}\",
       \"MASTER_ADDR\": \"${MASTER_ADDR}\",
-      \"SGLANG_USE_AITER\": \"1\",
-      \"SGLANG_ROCM_FUSED_DECODE_MLA\": \"1\",
       \"HF_HUB_TRUST_REMOTE_CODE\": \"1\",
       \"NCCL_DEBUG\": \"${NCCL_DEBUG}\",
       \"NCCL_CHECKS_DISABLE\": \"${NCCL_CHECKS_DISABLE}\",
@@ -330,13 +414,14 @@ if [ "${NODE_RANK}" = "0" ]; then
   }"
 
   cd $SLIME_PATH
-  ray job submit --address="http://127.0.0.1:8265" \
+    #  --rollout-num-gpus 32 \
+    #  --update-weight-buffer-size $(( 1024 * 1024 * 1024 * 4 )) \
+    #  ${CUSTOM_ARGS[@]} \
+  ray job submit --address="http://${MASTER_ADDR}:8265" \
      --runtime-env-json="${RUNTIME_ENV_JSON}" \
      -- python3 $SLIME_PATH/train.py \
      --actor-num-nodes 4 \
      --actor-num-gpus-per-node 8 \
-     --rollout-num-gpus 32 \
-     --update-weight-buffer-size $(( 1024 * 1024 * 1024 * 4 )) \
      --colocate \
      --no-offload-rollout \
      --no-offload-train \
@@ -349,7 +434,6 @@ if [ "${NODE_RANK}" = "0" ]; then
      ${EVAL_ARGS[@]} \
      ${SGLANG_ARGS[@]} \
      ${MISC_ARGS[@]} \
-     ${CUSTOM_ARGS[@]} \
      ${WANDB_ARGS[@]}
   
   LOG_INFO "========== Ray Job Submitted Successfully =========="

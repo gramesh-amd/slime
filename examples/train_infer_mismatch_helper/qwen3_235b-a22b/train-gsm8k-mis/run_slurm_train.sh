@@ -1,6 +1,6 @@
 #!/bin/bash
 
-export NNODES=${NNODES:-1}
+export NNODES=${NNODES:-4}
 export MASTER_PORT=${MASTER_PORT:-12345}
 
 SCRIPT_DIR=$(realpath "$(dirname "${BASH_SOURCE[0]}")")

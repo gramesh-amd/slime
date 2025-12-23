@@ -69,6 +69,7 @@ docker_podman_proxy run --rm \
     --env GPUS_PER_NODE \
     --env SLURM_NODELIST \
     --env LOG_DIR \
+    --env WANDB_API_KEY \
     "${ENV_ARGS[@]}" \
     --ipc=host --network=host \
     --device=/dev/kfd --device=/dev/dri \
@@ -79,7 +80,7 @@ docker_podman_proxy run --rm \
     "$DOCKER_IMAGE" /bin/bash -c "\
         echo '[NODE-${NODE_RANK}(${HOSTNAME})]: begin, time=$(date +"%Y.%m.%d %H:%M:%S")' && \
         rm /etc/apt/sources.list.d/rocm.list && sudo apt update 2>&1 > /dev/null && \
-        sudo apt install iproute2 openssh-client -y 2>&1 > /dev/null && \
+        sudo apt install iproute2 -y 2>&1 > /dev/null && \
         sed -i '/import torch/a import warnings' /app/Megatron-LM/megatron/core/model_parallel_config.py && \
         cd $SLIME_PATH && \
         bash ${SCRIPT_DIR}/run_train.sh \"\$@\" 2>&1 && \

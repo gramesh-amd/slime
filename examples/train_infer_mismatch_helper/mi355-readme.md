@@ -84,7 +84,7 @@ PYTHONPATH=${MEGATRON_LM_PATH} python tools/convert_hf_to_torch_dist.py ${MODEL_
     --trust-remote-code
 
 # convert hf checkpoint to torch dist for qwen3-235b-a22b (slurm launcher)
-NNODES=4 ./examples/train_infer_mismatch_helper/qwen3_235b-a22b/convert/run_slurm_convert_model.sh
+./examples/train_infer_mismatch_helper/qwen3_235b-a22b/convert/run_slurm_convert_model.sh
 ```
 
 
