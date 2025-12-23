@@ -159,12 +159,16 @@ ROLLOUT_ARGS=(
    --rm-type deepscaler
    
    --num-rollout 64
-   --rollout-batch-size 4           # 4 * n_samples(4) = 16 = global_batch_size
+  #  --rollout-batch-size 4           # 4 * n_samples(4) = 16 = global_batch_size
+   --rollout-batch-size 8           # 8 * n_samples(4) = 32 = global_batch_size
    --n-samples-per-prompt 4         # Standard for GRPO
    # GSM8K is simpler - 1024 tokens sufficient for responses
    --rollout-max-response-len 1024
    --rollout-temperature 0.8
-   --global-batch-size 16           # Must be divisible by DP=8
+   --global-batch-size 32           # Must be divisible by DP=8
+  #  --global-batch-size 16           # Must be divisible by DP=8
+  
+  #  --num-steps-per-rollout 2       # use multiple steps per rollout if OOM
 
   #  --num-rollout 64
   #  --rollout-batch-size 32
@@ -220,6 +224,7 @@ PERF_ARGS=(
    
    --use-dynamic-batch-size
    --max-tokens-per-gpu 4096        # Adequate with 1.6TB RAM per node
+  #  --max-tokens-per-gpu 8192        
 )
 
 # =============================================================================
@@ -284,10 +289,12 @@ WANDB_ARGS=(
 # )
 SGLANG_ARGS=(
    --rollout-num-gpus-per-engine 32
+  #  --rollout-num-gpus-per-engine 16
    --sglang-mem-fraction-static 0.5
    # --sglang-enable-dp-attention
    # --sglang-dp-size 4
    # --sglang-ep-size 32
+  #  --sglang-expert-parallel-size 16 # OOM
    --sglang-expert-parallel-size 32
    --sglang-max-running-requests 64
    --use-slime-router
