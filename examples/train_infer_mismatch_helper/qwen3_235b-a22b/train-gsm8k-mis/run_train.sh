@@ -14,6 +14,9 @@ pkill -9 python
 # set -ex
 
 HOSTNAME=$(hostname)
+SCRIPT_DIR=$(realpath "$(dirname "${BASH_SOURCE[0]}")")
+SLIME_PATH=$(realpath "${SCRIPT_DIR}/../../../..")
+
 LOG_INFO() {
     if [ "$*" = "" ]; then
         echo ""
@@ -115,8 +118,6 @@ echo "RANK-${NODE_RANK}, Disabling torch.dist patch in megatron..."
 echo "RANK-${NODE_RANK}, Disabling torch.dist patch in megatron done..."
 
 
-SCRIPT_DIR=$(realpath "$(dirname "${BASH_SOURCE[0]}")")
-SLIME_PATH=$(realpath "${SCRIPT_DIR}/../../../..")
 source ${SLIME_PATH}/scripts/models/qwen3-235B-A22B.sh
 
 CKPT_ARGS=(
@@ -278,13 +279,15 @@ if [ "${NODE_RANK}" = "0" ]; then
       echo "  >[WORKER-'"${worker_id}"' $(hostname)] Container found, starting Ray worker..."
       docker exec dev_train bash -c "pkill -9 sglang ; ray stop --force ; pkill -9 python ; ray start --address='"${MASTER_ADDR}"':6379 --num-gpus 8 --node-ip-address '"${WORKER_IP}"' --disable-usage-stats --dashboard-host=0.0.0.0 --dashboard-port=8265"
       echo "  >[WORKER-'"${worker_id}"' $(hostname)] Ray worker async started successfully!"
-    ' &
+    '
+    # ' &
     worker_id=$((worker_id+1))
   done
   
   LOG_INFO "Waiting for all Ray workers to start..."
   wait
   LOG_INFO "All Ray workers started!"
+  ray status
   
 else
   LOG_INFO "========== Worker Node (NODE_RANK=${NODE_RANK}, HOSTNAME=${HOSTNAME}) =========="
@@ -320,7 +323,9 @@ if [ "${NODE_RANK}" = "0" ]; then
       \"NCCL_CROSS_NIC\": \"${NCCL_CROSS_NIC}\",
       \"NCCL_IB_HCA\": \"${NCCL_IB_HCA}\",
       \"NCCL_SOCKET_IFNAME\": \"${NCCL_SOCKET_IFNAME}\",
-      \"GLOO_SOCKET_IFNAME\": \"${GLOO_SOCKET_IFNAME}\"
+      \"GLOO_SOCKET_IFNAME\": \"${GLOO_SOCKET_IFNAME}\",
+      \"RAY_EXPERIMENTAL_NOSET_HIP_VISIBLE_DEVICES\": \"${RAY_EXPERIMENTAL_NOSET_HIP_VISIBLE_DEVICES}\",
+      \"HIP_VISIBLE_DEVICES\": \"${HIP_VISIBLE_DEVICES}\"
     }
   }"
 
