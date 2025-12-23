@@ -213,7 +213,8 @@ EVAL_ARGS=(
 PERF_ARGS=(
    --tensor-model-parallel-size 4
    --sequence-parallel
-   --pipeline-model-parallel-size 1
+   --pipeline-model-parallel-size 4
+   --decoder-last-pipeline-num-layers 22
    --context-parallel-size 1
    --expert-model-parallel-size 8
    --expert-tensor-parallel-size 1
@@ -223,6 +224,7 @@ PERF_ARGS=(
    --recompute-num-layers 1
    
    --use-dynamic-batch-size
+  #  --max-tokens-per-gpu 2048        # Adequate with 1.6TB RAM per node
    --max-tokens-per-gpu 4096        # Adequate with 1.6TB RAM per node
   #  --max-tokens-per-gpu 8192        
 )
