@@ -165,10 +165,10 @@ ROLLOUT_ARGS=(
    # GSM8K is simpler - 1024 tokens sufficient for responses
    --rollout-max-response-len 1024
    --rollout-temperature 0.8
-   --global-batch-size 32           # Must be divisible by DP=8
-  #  --global-batch-size 16           # Must be divisible by DP=8
+  #  --global-batch-size 32           # Must be divisible by DP=8
+   --global-batch-size 16           # Must be divisible by DP=8
   
-  #  --num-steps-per-rollout 2       # use multiple steps per rollout if OOM
+   --num-steps-per-rollout 2       # use multiple steps per rollout if OOM
 
   #  --num-rollout 64
   #  --rollout-batch-size 32
@@ -253,8 +253,8 @@ OPTIMIZER_ARGS=(
    
    # CPU offload disabled - causes CPU RAM OOM during initialization
    # With 275 GB GPU memory and colocate mode, keep optimizer on GPU
-   # --optimizer-cpu-offload
-   # --overlap-cpu-optimizer-d2h-h2d
+  #  --optimizer-cpu-offload
+  #  --overlap-cpu-optimizer-d2h-h2d
    --use-precision-aware-optimizer
 )
 
