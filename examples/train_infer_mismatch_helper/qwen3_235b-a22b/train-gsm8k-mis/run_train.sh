@@ -133,7 +133,7 @@ echo "RANK-${NODE_RANK}, Installing slime done..."
 # so we need to unpatch it here, or CP=2/PP=4 will failed.
 echo "RANK-${NODE_RANK}, Disabling torch.dist patch in megatron..."
 # cd $SLIME_PATH/bak && ./patch.sh && cd ..
-cp ${SCRIPT_DIR}/parallel_state.py /app/Megatron-LM/megatron/core/parallel_state.py
+cp ${SCRIPT_DIR}/patch/parallel_state.py /app/Megatron-LM/megatron/core/parallel_state.py
 echo "RANK-${NODE_RANK}, Disabling torch.dist patch in megatron done..."
 
 
