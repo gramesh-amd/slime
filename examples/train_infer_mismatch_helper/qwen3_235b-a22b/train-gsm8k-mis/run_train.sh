@@ -129,8 +129,11 @@ cd $SLIME_PATH && pip install -e . 2>&1 > /dev/null
 echo "RANK-${NODE_RANK}, Installing slime done..."
 
 # disable torch.dist patch in megatron
+# grameshamd/miles-slime-rocm7-mi35x:mla-fix still patched the torch.dist in megatron,
+# so we need to unpatch it here, or CP=2/PP=4 will failed.
 echo "RANK-${NODE_RANK}, Disabling torch.dist patch in megatron..."
 # cd $SLIME_PATH/bak && ./patch.sh && cd ..
+cp ${SCRIPT_DIR}/parallel_state.py /app/Megatron-LM/megatron/core/parallel_state.py
 echo "RANK-${NODE_RANK}, Disabling torch.dist patch in megatron done..."
 
 
@@ -156,19 +159,21 @@ ROLLOUT_ARGS=(
 
    # Use deepscaler reward model - extracts answer after </think> tag
    # Qwen3 supports thinking mode with <think>...</think> tags
-   --rm-type deepscaler
+  #  --rm-type deepscaler
+   --rm-type math
    
    --num-rollout 64
-  #  --rollout-batch-size 4           # 4 * n_samples(4) = 16 = global_batch_size
    --rollout-batch-size 8           # 8 * n_samples(4) = 32 = global_batch_size
    --n-samples-per-prompt 4         # Standard for GRPO
    # GSM8K is simpler - 1024 tokens sufficient for responses
    --rollout-max-response-len 1024
    --rollout-temperature 0.8
-  #  --global-batch-size 32           # Must be divisible by DP=8
    --global-batch-size 16           # Must be divisible by DP=8
-  
    --num-steps-per-rollout 2       # use multiple steps per rollout if OOM
+
+  #  --rollout-batch-size 4           # 4 * n_samples(4) = 16 = global_batch_size
+  #  --global-batch-size 32           # Must be divisible by DP=8
+  #  --num-steps-per-rollout 1       # use multiple steps per rollout if OOM
 
   #  --num-rollout 64
   #  --rollout-batch-size 32
@@ -263,7 +268,6 @@ OPTIMIZER_ARGS=(
 # =============================================================================
 # WANDB LOGGING
 # =============================================================================
-export WANDB_API_KEY=2306e9cea020b222412e4a4c0912e05c0722f4e2
 WANDB_ARGS=(
    --use-wandb
    --wandb-project slime-qwen235
