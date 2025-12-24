@@ -83,19 +83,33 @@ def main():
     world_size = int(os.getenv("WORLD_SIZE") or os.getenv("SLURM_NTASKS") or 1)
     local_rank = int(os.getenv("LOCAL_RANK") or os.getenv("SLURM_LOCALID") or 0)
     global_rank = int(os.getenv("RANK") or os.getenv("SLURM_PROCID") or 0)
+    master_addr = os.getenv("MASTER_ADDR") or "localhost"
+    master_port = os.getenv("MASTER_PORT") or "12355"
 
-    torch.cuda.set_device(local_rank)
     os.environ.setdefault("WORLD_SIZE", str(world_size))
     os.environ.setdefault("RANK", str(global_rank))
     os.environ.setdefault("LOCAL_RANK", str(local_rank))
-    os.environ.setdefault("MASTER_ADDR", "localhost")
-    os.environ.setdefault("MASTER_PORT", "12355")
+    os.environ.setdefault("MASTER_ADDR", master_addr)
+    os.environ.setdefault("MASTER_PORT", master_port)
+    
+    if global_rank == 0:
+        print(
+            f"[RANK-{global_rank}], init_process_group begin, "
+            f"master_addr: {master_addr}, master_port: {master_port}, "
+            f"world_size: {world_size}, local_rank: {local_rank}, global_rank: {global_rank}",
+            flush=True
+        )
+    torch.cuda.set_device(local_rank)
     dist.init_process_group(
         backend="nccl",
         world_size=world_size,
         rank=global_rank,
         device_id=torch.device(f"cuda:{local_rank}"),
+        init_method="env://",
     )
+    if global_rank == 0:
+        print(f"[RANK-{global_rank}], init_process_group finished", flush=True)
+    
     args = get_args()
     init(args)
     model = get_model(get_model_provider_func(args), ModelType.encoder_or_decoder, wrap_with_ddp=False)
