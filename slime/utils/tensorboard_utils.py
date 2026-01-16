@@ -1,15 +1,17 @@
 import datetime
+import logging
 import os
 from slime.utils.misc import SingletonMeta
 
 try:
     from torch.utils.tensorboard import SummaryWriter
-except:
+except ImportError:
     SummaryWriter = None
+
+logger = logging.getLogger(__name__)
 
 
 class _TensorboardAdapter(metaclass=SingletonMeta):
-    _instance = None
     _writer = None
 
     """
@@ -30,7 +32,7 @@ class _TensorboardAdapter(metaclass=SingletonMeta):
         if tb_project_name is not None or os.environ.get("TENSORBOARD_DIR", None):
             if tb_project_name is not None and tb_experiment_name is None:
                 tb_experiment_name = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            self._instance._initialize(tb_project_name, tb_experiment_name)
+            self._initialize(tb_project_name, tb_experiment_name)
         else:
             raise ValueError("tb_project_name and tb_experiment_name, or TENSORBOARD_DIR are required")
 
@@ -39,7 +41,7 @@ class _TensorboardAdapter(metaclass=SingletonMeta):
         # Get tensorboard directory from environment variable or use default path
         tensorboard_dir = os.environ.get("TENSORBOARD_DIR", f"tensorboard_log/{tb_project_name}/{tb_experiment_name}")
         os.makedirs(tensorboard_dir, exist_ok=True)
-        print(f"Saving tensorboard log to {tensorboard_dir}.")
+        logger.info(f"Saving tensorboard log to {tensorboard_dir}.")
         self._writer = SummaryWriter(tensorboard_dir)
 
     def log(self, data, step):

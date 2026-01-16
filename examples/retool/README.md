@@ -21,7 +21,7 @@ The retool example provides:
 1. Setup and download datasets:
 ```bash
 cd slime
-pip install -e .
+pip install -e . --no-deps
 # For SFT part, you can use later model to RL directly and skip SFT. 
 hf download --repo-type dataset JoeYing/ReTool-SFT  --local-dir /root/JoeYing/ReTool-SFT
 hf download Qwen/Qwen3-4B-Instruct-2507 --local-dir /root/Qwen/Qwen3-4B-Instruct-2507
@@ -33,7 +33,7 @@ hf download --repo-type dataset zhuzilin/aime-2024  --local-dir /root/aime-2024
 hf download font-info/qwen3-4b-sft-SGLang-RL --local-dir /root/font-info/qwen3-4b-sft
 ```
 
-2. Create torch dict
+2. Create torch dist
 For SFT 
 ```bash
 source scripts/models/qwen3-4B.sh
